@@ -15,17 +15,14 @@ if (SERVER) then
 
 	function ENT:OnRemove()
 		local id = self:GetId()
-
 		local RemoveTimers = function(self, id)	
 			local rfert, rwater, cgrowth = "ReduceF" .. id .. "]", "ReduceW[ " .. id .. "]", "CheckGrowth[" .. id .. "]"
 			timer.Remove(rfert) timer.Remove(rwater) timer.Remove(cgrowth)
 			print ("removing timers!")
 		end
 
-		RemoveTimers()
-	end
-		
-	end	
+		RemoveTimers(self, id)
+	end 
 
 	function ENT:SetupDataTables()
 		self:NetworkVar("Int", 0, "nextUseTime")
@@ -62,16 +59,26 @@ if (SERVER) then
 	function ENT:Initialize()
 		self:SetModel("models/props/de_inferno/hr_i/flower_pots/barrel_planter_wood_full.mdl")
 		self:SetSolid(SOLID_VPHYSICS)
-		self:PhysicsInitStatic(SOLID_VPHYSICS)
+		self:PhysicsInit(SOLID_VPHYSICS)
 		self:SetCollisionGroup(COLLISION_GROUP_PLAYER)
 		self:SetUseType(SIMPLE_USE)
 		self:AddEFlags(EFL_KEEP_ON_RECREATE_ENTITIES)
+		self:SetPersistent(true)
 	end
 
 	function ENT:Use(client, itemTable)	
+
+		local ResetVars = function(self)
+			self:SetbPlanted(false)
+			self:SetbGrown(0)
+			self:SetnPhase(0)
+			self:SetendTime(0)
+			self:SetstartTime(0)
+		end
+
 		local name = self:GetClass()
+		local bush = constraint.FindConstraintEntity(self, "Weld")
 		local grown, fert, water, phase, id, planted = self:GetbGrown(), self:GetnFertLevel(),self:GetnWaterLevel(), self:GetnPhase(), self:GetId(), self:GetbPlanted()
-		local flag = false
 		local endTime, timeNow = self:GetendTime(), os.time()
 		local stillGrowing = ((planted) and (grown == 0) and (endTime > 0))
 		local harvestReady = ((phase >= 3) and (grown == 1))
@@ -82,10 +89,15 @@ if (SERVER) then
 			local slots = {inv:FindEmptySlot(1, 1, true)}
 			print (slots[1], slots[2])
 			inv:Add("fruit", 2, slots[1], slots[2])
-			local index = self:GetLastIndex()
-			local bush = ents.GetByIndex(index)
-			ResetVars(self)
-			bush:Remove()
+			local bushIndex = self:GetLastIndex()
+
+			if (bushIndex > 0) then
+				local bush = ents.GetByIndex(bushIndex)
+				bush:Remove()
+				self:SetLastIndex(0)
+				self:SetbPlanted(false)
+			end
+
 			client:NotifyLocalized("You pull the sickly sweet smelling fruit from the vine.")
 			return
 		end
@@ -94,24 +106,19 @@ if (SERVER) then
 			local timeLeft = endTime - timeNow
 			local timeInMinutes = (timeLeft / 60)
 			local mils = tonumber(string.format("%.0f", timeInMinutes))
-			--substitute with "timeLeft" to see seconds
 			client:NotifyLocalized("It looks like the plant will take about " .. mils .. " minutes to grow.")
 		end
 
-		if (sWater != nil) then
-			client:NotifyLocalized(sWater)
-		end
-		
+		CheckWaterLevel(self, water)
 		client:NotifyLocalized("It looks like the plant is " .. fert .. " percent fertilized.")
 	end
 
 	function CheckWaterLevel(ent, water)
-		local switch = (math.floor (water+0.5) / 10)
-		print ("switch,", switch)
+		local switch = (math.floor(water / 10))
 		local WaterTable = 
 		{
 			[0] =  function() client:NotifyLocalized("The soil looks very dry.") end,
-			[1] =  function() client:NotifyLocalized("The soil looks very dry.") end,  
+			[1] =  function() client:NotifyLocalized("The soil is slightly damp.") end,  
 			[2] =  function() client:NotifyLocalized("It's getting there.") end, 
 			[3] =  function() client:NotifyLocalized("The soil is moist.") end,
 			[4] =  function() client:NotifyLocalized("A small amount of water has been added to the soil.") end,
@@ -128,25 +135,30 @@ if (SERVER) then
 			[15] = function() client:NotifyLocalized("The soil is drenched.") end,
 			[16] = function() client:NotifyLocalized("Water is pouring out of the pot.") end,
 		}
+		
+		local userNotify = WaterTable[switch]
+		if (userNotify) then
+			userNotify()
+		end
 		return switch
 	end
 
-	hook.Add ("water", "manage water level when water is added", function(ent, sWaterType, client) 
-		print ("hook hit, water type: ", sWaterType)
-		local waterLimit = 160
+	hook.Add ("water", "manage water level when water is added", function(ent, sWaterGoodz, client) 
+		print ("hook hit, water type: ", sWaterGood)
+		local waterLimit = 180
 		local water, fertLevel = ent:GetnWaterLevel(), ent:GetnFertLevel()
 		local afterGood, afterBad  = (water + 40), (water + 20)
 		local strGood, strBad, notify = ("The purified water nourishes the soil."), ("The filthy water does little good."), ("There is too much water already.")
-		local canAdd = ((waterBad < waterLimit) and (water < waterLimit))
+		local canAdd = ((afterBad < waterLimit) and (water < waterLimit))
 		print ("canadd:", canAdd)
 
 		if (canAdd) then
-			if (sWaterType == "good") then
-				ent:SetnWaterLevel(waterGood)
+			if (sWaterGood) then
+				ent:SetnWaterLevel(afterGood)
 				client:NotifyLocalized(strGood)
 			else
 				client:NotifyLocalized(strBad)
-				ent:SetnWaterLevel(waterBad)
+				ent:SetnWaterLevel(afterBad)
 			end
 		else
 			client:NotifyLocalized(notify)
@@ -159,127 +171,119 @@ if (SERVER) then
 	hook.Add ("fert", "fertilization", function (ent, flag)
 		local water = ent:GetnWaterLevel()
 		local fertLevel = ent:GetnFertLevel()
-		local set = CheckWaterLevel (ent, water)
+		local tblset = {CheckWaterLevel(ent, water)}
+		local set = tblset[1]
 
-			if (flag) then
-				if (client) then
-				ent:SetnFertLevel(set)
-				end
-			end
+		if (client) then
+			ent:SetnFertLevel(fertLevel + set + 15)
+		end
 		
-			ReduceFert(ent)
+		ReduceFert(ent)
 	end)
 	
 	hook.Add ("planted", "seed fire", function  (ent)
+		local InitBush = function (ent, bush)
+			local pos = ent:GetPos()
+			local z = pos[3] + 21
+			local bush = ents.Create("prop_dynamic")
+			local bushIndex = bush:EntIndex()
+			bush:PhysicsInit(SOLID_VPHYSICS)
+			bush:SetCollisionGroup(COLLISION_GROUP_NONE)
+			bush:SetSolid(SOLID_VPHYSICS)			
+			bush:SetPos(Vector (pos[1], pos[2], z))	
+			ent:DeleteOnRemove(bush)
+			ent:SetLastIndex(bushIndex)
+			return bush				
+		end
+
 		local bushtbl = {InitBush (ent)}
 		local bush = bushtbl[1]
 		local id, grown, valid, water, fertLevel, time = ent:GetId(), ent:GetbGrown(), ent:IsValid(), ent:GetnWaterLevel(), ent:GetnFertLevel(), os.time()
-		timer.Create("CheckGrowth[" .. id .. "]", 5, 0, function() CheckGrowth (ent, bush) end)
-		ent:SetbPlanted(true)
 
 		local SetTimes = function(ent, water, fertlevel)
-				local baseDuration = 5
-				local tbl = {CheckWaterLevel(ent, water)}
-				local mult, adjust = tbl[2], tbl[3]
-				local fertRate = fertLevel * mult		
-				local baseIncrease = (baseDuration * (adjust))
-				local computedTime = (baseIncrease * (mult))
-				local endTime = time + computedTime
-				ent:SetendTime(endTime)
-				ent:SetstartTime(time)
-			end			
+			local baseDuration = 1
+			local baseBonus = 25
+			local fertBonus = fertLevel / 4
+			local mult = (water + fertBonus + baseBonus) / 100	
+			print ("mult,", mult)
+			local computedTime = baseDuration
+			if (mult > 1) then
+				local increase = (mult%1)
+				print ("increase,", increase)
+				local computedTime = (baseDuration * increase)	
+			end
 
-		SetTimes(ent)
+			local endTime = time + computedTime
+			print (endTime)
+			ent:SetendTime(endTime)
+			ent:SetstartTime(time)
+			print ("TIMES SET")
+		end			
+
+		timer.Create("TimeGrowth[" .. id .. "]", 5, 0, function() CheckGrowth (ent, bush) end)
+
+		ent:SetbPlanted(true)
+		SetTimes(ent, water, fertLevel)
 		ReduceFert(ent)
 		ReduceWater(ent)
-
 	end)	
 
-	
-		
 	function CheckGrowth (ent, bush)
-		local id = ent:GetId()
-		local water, fert, grown, planted, phase = ent:GetnWaterLevel(), ent:GetnFertLevel(), ent:GetbGrown(), ent:GetbPlanted(), ent:GetnPhase()
-		local endTime, startTime, timeNow = ent:GetendTime(), ent:GetstartTime(), os.time()
-		local goPhase = (endTime < timeNow and grown == 0 and planted)
+		local id, grown, planted, endTime, startTime, timeNow  = ent:GetId(), ent:GetbGrown(), ent:GetbPlanted(), ent:GetendTime(), ent:GetstartTime(), os.time()
+		print ("id, grown, planted, endTime, startTime, timeNow", id, grown, planted, endTime, startTime, timeNow)
+		local checkTime = (endTime < timeNow and grown == 0 and planted)
 		local goDestroy = ((endTime != 0) and (startTime != 0) and (grown == 1) and (planted))
+		print ("checking growth", checkTime)
 
-		if (goPhase) then
+		if (checkTime) then
 			CheckPhase(ent, bush)
 			return
 		end
+
 		if (goDestroy) then
 			print ("this shouldn't happen, destroy timer")
-			timer.Destroy("CheckGrowth[" .. id .. "]")
+			timer.Destroy("TimeGrowth[" .. id .. "]")
 		end
 	end
 
 	function CheckPhase (ent, bush)
-		local id, phase, complete1, complete2, grown, pos, z = ent:GetId(), ent:GetnPhase(), ent:GetbPhase1Complete(), ent:GetbPhase2Complete(), ent:GetbGrown(), ent:GetPos()
+		local id, phase = ent:GetId(), ent:GetnPhase()
+		local complete1, complete2, pos, z = ent:GetbPhase1Complete(), ent:GetbPhase2Complete(), ent:GetPos()
 		local z = pos[3] + 21		
 		local advancePhase1 = ((phase == 1) and (!complete1))
 		local advancePhase2 = ((phase == 2) and (!complete2))
-		local advancePhase3 = ((phase == 3) and (grown == 0))
+		local advancePhase3 = ((phase == 3))
 
-		local GoPhase(ent, bush, id, phase)
-			print ("running GOPHASE")
-			ClearTimes(ent)
-			WeldBones (ent, bush)
-	
-			if (phase == 1) then
-				ent:SetbPhase1Complete(true)
-				bush:SetModel("models/props/de_dust/hr_dust/foliage/banana_plant_03.mdl")
-			end
-			if (phase == 2) then
-				ent:SetbPhase2Complete(true)
-				bush:SetModel("models/props/de_dust/hr_dust/foliage/banana_plant_01.mdl") 
-			end
-			if (phase == 3) then
-				timer.Destroy ("CheckGrowth[" .. id .. "]")
-				bush:SetModel("models/props/de_dust/hr_dust/foliage/banana_plant_02.mdl")
-			end
-	
-			ent:SetnPhase(phase + 1)
-			print "blah"
+		local WeldBones = function(ent, bush)
+			ent:PhysicsInit(SOLID_VPHYSICS)
+			bush:PhysicsInit(SOLID_VPHYSICS)
+			local bonename1, bonename2 = (ent:GetBoneName(0)), (bush:GetBoneName(0))
+			print ("bone names:", bonename1, bonename2)
+			local bone1, bone2 = (ent:LookupBone(bonename1)), (bush:LookupBone(bonename2))
+			print ("bones:", bone1, bone2)
+			constraint.Weld(ent, bush, bone1, bone2, 0, false)
+			--constraint.Weld(bush, ent, 0, bone1, bone2, 0, false)			
+		end
+
+		local ClearTimes = function(ent)
+			ent:SetendTime(0)
+			ent:SetstartTime(0)
 		end
 	
+		local CasePhase = {
+			[0] = function() print("started growing") end,
+			[1] = function() ent:SetbPhase1Complete(true) bush:SetModel("models/props/de_dust/hr_dust/foliage/banana_plant_03.mdl") WeldBones (ent, bush) end,	
+			[2] = function() ent:SetbPhase2Complete(true) bush:SetModel("models/props/de_dust/hr_dust/foliage/banana_plant_01.mdl") end,
+			[3] = function() timer.Destroy ("TimeGrowth[" .. id .. "]") bush:SetModel("models/props/de_dust/hr_dust/foliage/banana_plant_02.mdl") ent:SetbGrown(1) end,
+		}
 
-		print ("checking phase")
-		print ("advance phase:", phase, advancePhase1, advancePhase2, advancePhase3)
 		if (IsValid (ent)) then
-			if (phase == 0) then
-				GoPhase(ent, bush, id, 0)
-			end
-			if (advancePhase1) then
-				GoPhase(ent, bush, id, 1)	
-			end
-			if (advancePhase2) then
-				GoPhase(ent, bush, id, 2)
-			end
-			if (advancePhase3) then
-				GoPhase(ent, bush, id, 3)
-			end
+			CasePhase[phase]()
 		end
-	end
 
-	function WeldBones(ent, bush)
-		local bonename1, bonename2 = (ent:GetBoneName(0)), (bush:GetBoneName(0))
-		local bone1, bone2 = ent:LookupBone(bonename1), bush:LookupBone(bonename2)
-		constraint.Weld(ent, bush, bone1, bone2, 0, false)
-		constraint.Weld(bush, ent, bone1, bone2, 0, false)
-		bush:PhysicsInitStatic(SOLID_VPHYSICS)
-		ent:PhysicsInitStatic(SOLID_VPHYSICS)
-	end
+		ent:SetnPhase(phase + 1)
+		ClearTimes(ent)			
 
-	function InitBush (ent)
-		local pos = ent:GetPos()
-		local z = pos[3] + 21
-		local bush = ents.Create("prop_dynamic")
-		bush:PhysicsInitStatic(SOLID_VPHYSICS)
-		bush:SetCollisionGroup(COLLISION_GROUP_NONE)
-		bush:SetSolid(SOLID_VPHYSICS)
-		bush:SetPos (Vector (pos[1], pos[2], z))	
-		return bush				
 	end
 	
 	function ReduceWater (ent)
@@ -290,18 +294,16 @@ if (SERVER) then
 			timer.Create(rw, 5, 0, function() 
 				local water = ent:GetnWaterLevel()
 				local grown = ent:GetbGrown()
-				if ((water) > 0) and (grown == 0) then  
+				local reduce = ((water) > 0) and (grown == 0)
+				local del = ((grown == 1) or (water <= 0))
+				if (reduce) then  
 					ent:SetnWaterLevel(water - 1)
-				elseif (grown == 1) or (water <= 0) then 
+				end
+				if (del) then 
 					timer.Remove (rw) 
 				end
 			end)
 		end
-	end
-
-	function ClearTimes (ent)
-		ent:SetendTime(0)
-		ent:SetstartTime(0)
 	end
 
 	function ReduceFert (ent)
@@ -317,7 +319,6 @@ if (SERVER) then
 					if (fertLevel > fertLimit) and (grown == 0) then  
 					ent:SetnFertLevel(fertLevel - 5)
 					elseif (grown == 1) or (fertLevel <= fertLimit) then 
-					-- don't keep the timer around when the plant has grown
 					timer.Destroy (rf) 
 					end
 			end)
