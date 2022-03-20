@@ -143,7 +143,7 @@ if (SERVER) then
 		return switch
 	end
 
-	hook.Add ("water", "manage water level when water is added", function(ent, sWaterGoodz, client) 
+	hook.Add ("water", "manage water level when water is added", function(ent, sWaterGood, client) 
 		print ("hook hit, water type: ", sWaterGood)
 		local waterLimit = 180
 		local water, fertLevel = ent:GetnWaterLevel(), ent:GetnFertLevel()
