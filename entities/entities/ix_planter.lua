@@ -18,7 +18,6 @@ if (SERVER) then
 		local RemoveTimers = function(self, id)	
 			local rfert, rwater, cgrowth = "ReduceF" .. id .. "]", "ReduceW[ " .. id .. "]", "CheckGrowth[" .. id .. "]"
 			timer.Remove(rfert) timer.Remove(rwater) timer.Remove(cgrowth)
-			print ("removing timers!")
 		end
 
 		RemoveTimers(self, id)
@@ -87,7 +86,6 @@ if (SERVER) then
            	local char = client:GetCharacter()
            	local inv = char:GetInventory()
 			local slots = {inv:FindEmptySlot(1, 1, true)}
-			print (slots[1], slots[2])
 			inv:Add("fruit", 2, slots[1], slots[2])
 			local bushIndex = self:GetLastIndex()
 
@@ -144,13 +142,11 @@ if (SERVER) then
 	end
 
 	hook.Add ("water", "manage water level when water is added", function(ent, sWaterGood, client) 
-		print ("hook hit, water type: ", sWaterGood)
 		local waterLimit = 180
 		local water, fertLevel = ent:GetnWaterLevel(), ent:GetnFertLevel()
 		local afterGood, afterBad  = (water + 40), (water + 20)
 		local strGood, strBad, notify = ("The purified water nourishes the soil."), ("The filthy water does little good."), ("There is too much water already.")
 		local canAdd = ((afterBad < waterLimit) and (water < waterLimit))
-		print ("canadd:", canAdd)
 
 		if (canAdd) then
 			if (sWaterGood) then
@@ -205,19 +201,15 @@ if (SERVER) then
 			local baseBonus = 25
 			local fertBonus = fertLevel / 4
 			local mult = (water + fertBonus + baseBonus) / 100	
-			print ("mult,", mult)
 			local computedTime = baseDuration
 			if (mult > 1) then
 				local increase = (mult%1)
-				print ("increase,", increase)
 				local computedTime = (baseDuration * increase)	
 			end
 
 			local endTime = time + computedTime
-			print (endTime)
 			ent:SetendTime(endTime)
 			ent:SetstartTime(time)
-			print ("TIMES SET")
 		end			
 
 		timer.Create("TimeGrowth[" .. id .. "]", 5, 0, function() CheckGrowth (ent, bush) end)
@@ -230,10 +222,8 @@ if (SERVER) then
 
 	function CheckGrowth (ent, bush)
 		local id, grown, planted, endTime, startTime, timeNow  = ent:GetId(), ent:GetbGrown(), ent:GetbPlanted(), ent:GetendTime(), ent:GetstartTime(), os.time()
-		print ("id, grown, planted, endTime, startTime, timeNow", id, grown, planted, endTime, startTime, timeNow)
 		local checkTime = (endTime < timeNow and grown == 0 and planted)
 		local goDestroy = ((endTime != 0) and (startTime != 0) and (grown == 1) and (planted))
-		print ("checking growth", checkTime)
 
 		if (checkTime) then
 			CheckPhase(ent, bush)
@@ -241,7 +231,6 @@ if (SERVER) then
 		end
 
 		if (goDestroy) then
-			print ("this shouldn't happen, destroy timer")
 			timer.Destroy("TimeGrowth[" .. id .. "]")
 		end
 	end
@@ -258,9 +247,7 @@ if (SERVER) then
 			ent:PhysicsInit(SOLID_VPHYSICS)
 			bush:PhysicsInit(SOLID_VPHYSICS)
 			local bonename1, bonename2 = (ent:GetBoneName(0)), (bush:GetBoneName(0))
-			print ("bone names:", bonename1, bonename2)
 			local bone1, bone2 = (ent:LookupBone(bonename1)), (bush:LookupBone(bonename2))
-			print ("bones:", bone1, bone2)
 			constraint.Weld(ent, bush, bone1, bone2, 0, false)
 			--constraint.Weld(bush, ent, 0, bone1, bone2, 0, false)			
 		end
